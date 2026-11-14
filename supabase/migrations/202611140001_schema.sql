@@ -1,0 +1,27 @@
+begin;
+create table profiles(id uuid primary key references auth.users on delete cascade, display_name text not null default 'เพื่อนใหม่' check(char_length(display_name) between 1 and 50), color text not null default '#6366f1' check(color ~ '^#[0-9a-fA-F]{6}$'), created_at timestamptz not null default now());
+create table groups(id uuid primary key default gen_random_uuid(), name text not null check(char_length(name) between 1 and 80), invite_code text not null unique check(invite_code ~ '^[A-Z]{6}$'), owner_id uuid not null references profiles on delete cascade, created_at timestamptz not null default now());
+create table group_members(group_id uuid references groups on delete cascade, user_id uuid references profiles on delete cascade, role text not null check(role in ('owner','member')), joined_at timestamptz not null default now(), primary key(group_id,user_id));
+create table schedules(id uuid primary key default gen_random_uuid(), owner_id uuid not null default auth.uid() references profiles on delete cascade, group_id uuid not null references groups on delete cascade, name text not null check(char_length(name) between 1 and 80), created_at timestamptz not null default now());
+create table classes(id uuid primary key default gen_random_uuid(), schedule_id uuid not null references schedules on delete cascade, subject text not null check(char_length(subject) between 1 and 100), day_of_week smallint not null check(day_of_week between 0 and 6), start_time time not null, end_time time not null, room text not null default '', color text not null default '#6366f1' check(color ~ '^#[0-9a-fA-F]{6}$'), check(start_time < end_time));
+create table tasks(id uuid primary key default gen_random_uuid(), group_id uuid not null references groups on delete cascade, title text not null check(char_length(title) between 1 and 120), subject text not null default '', description text not null default '', due_at timestamptz not null, created_by uuid default auth.uid() references profiles on delete set null, created_at timestamptz not null default now());
+create table task_completions(task_id uuid references tasks on delete cascade, user_id uuid default auth.uid() references profiles on delete cascade, done_at timestamptz not null default now(), primary key(task_id,user_id));
+create table pings(id uuid primary key default gen_random_uuid(), group_id uuid not null references groups on delete cascade, from_user uuid references profiles on delete set null, to_user uuid not null references profiles on delete cascade, message text not null check(char_length(message) between 1 and 180), is_alarm boolean not null default false, repeat_count int not null default 0 check(repeat_count between 0 and 10), next_repeat_at timestamptz, acknowledged_at timestamptz, read_at timestamptz, created_at timestamptz not null default now(), check(from_user <> to_user));
+create table push_subscriptions(id uuid primary key default gen_random_uuid(), user_id uuid not null default auth.uid() references profiles on delete cascade, endpoint text not null unique, p256dh text not null, auth text not null, user_agent text, created_at timestamptz not null default now());
+create table notification_settings(user_id uuid primary key default auth.uid() references profiles on delete cascade, remind_task_1d boolean not null default true, remind_task_1h boolean not null default true, remind_class_30m boolean not null default true, show_completions boolean not null default true);
+create table notification_jobs(id uuid primary key default gen_random_uuid(), dedupe_key text unique not null, user_id uuid not null references profiles on delete cascade, group_id uuid not null references groups on delete cascade, ping_id uuid references pings on delete cascade, title text not null, body text not null, run_at timestamptz not null default now(), expires_at timestamptz not null default now()+interval '5 minutes', lease_until timestamptz, delivered_at timestamptz);
+create index on group_members(user_id);
+create index on schedules(group_id);
+create index on classes(schedule_id);
+create index on tasks(group_id,due_at);
+create index on pings(from_user,created_at desc);
+create index on pings(to_user,created_at desc);
+create index on pings(next_repeat_at) where is_alarm and acknowledged_at is null;
+create index on push_subscriptions(user_id);
+create index on notification_jobs(run_at) where delivered_at is null;
+create function public.init_profile() returns trigger language plpgsql security definer set search_path='' as $$
+begin insert into public.profiles(id) values(new.id) on conflict do nothing; return new; end $$;
+revoke all on function public.init_profile() from public,anon,authenticated;
+create trigger classmate_profile after insert on auth.users for each row execute function public.init_profile();
+insert into profiles(id) select id from auth.users on conflict do nothing;
+commit;
