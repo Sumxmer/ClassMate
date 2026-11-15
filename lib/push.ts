@@ -1,5 +1,6 @@
 import webpush from 'web-push';
 import {check} from './browser';
+import type {Ping} from './model';
 import {serviceDb,validEndpoint} from './server';
 type Job={id:string;user_id:string;group_id:string;ping_id:string|null;title:string;body:string;dedupe_key:string};
 export async function dispatch(onlyPing?:string, signal?:AbortSignal){
@@ -14,8 +15,9 @@ export async function dispatch(onlyPing?:string, signal?:AbortSignal){
    signal?.throwIfAborted();
    let alarm=false;
    if(job.ping_id){
-    const query=db.from('pings').select('is_alarm,acknowledged_at').eq('id',job.ping_id).maybeSingle();
-    const ping=check(await (signal ? query.abortSignal(signal) : query));
+    const query=db.from('pings').select('is_alarm,acknowledged_at').eq('id',job.ping_id);
+    if(signal)query.abortSignal(signal);
+    const ping=check(await query.maybeSingle<Pick<Ping,'is_alarm'|'acknowledged_at'>>());
     if(!ping||ping.acknowledged_at)return;
     alarm=ping.is_alarm;
    }

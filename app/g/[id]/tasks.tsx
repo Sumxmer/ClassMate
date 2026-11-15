@@ -8,7 +8,7 @@ export function TaskBoard({group,uid,people}:{group:Group;uid:string;people:Prof
  const {data,error,loading,refresh}=useData(group.id+uid,['tasks','task_completions'],async()=>{
  const db=browserDb(),tasks=check(await db.from('tasks').select('*').eq('group_id',group.id).order('due_at').returns<Task[]>());
  const completions=tasks.length?check(await db.from('task_completions').select('task_id,user_id').in('task_id',tasks.map(t=>t.id)).returns<Completion[]>()):[];
- const prefs=check(await db.from('notification_settings').select('show_completions').eq('user_id',uid).maybeSingle());
+ const prefs=check(await db.from('notification_settings').select('show_completions').eq('user_id',uid).maybeSingle<{show_completions:boolean}>());
  return {tasks,completions,show:prefs?.show_completions??true};
  });
  const [now,setNow]=useState(0);
